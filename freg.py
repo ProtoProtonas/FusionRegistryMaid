@@ -6,6 +6,7 @@
 # 5. failiukas su keliais pasikartojanciais codelistais ir clashais visuose juose
 
 import xml.etree.ElementTree as et
+from xml.etree.ElementTree import Element, ElementTree
 import time
 from bs4 import BeautifulSoup as bs
 
@@ -35,6 +36,7 @@ def print_xml(element):
     text = bs(text, 'lxml')
     text = text.prettify()    
     text = text.replace('ns0', 'str')
+    text = text.replace('ns2', 'str')
     text = text.replace('<html>', '')
     text = text.replace('</html>', '')
     text = text.replace('<body>', '')
@@ -48,13 +50,15 @@ def ets_equal(et1, et2):
     if tag1 != tag2:
         return False
 
-    attrib1 = remove_version_et(et1).attrib
-    attrib2 = remove_version_et(et2).attrib
+    attrib1 = str(et1.attrib)
+    attrib2 = str(et2.attrib)
+    attrib1 = remove_version_str(attrib1)
+    attrib2 = remove_version_str(attrib2)
     if attrib1 != attrib2:
         return False
 
-    text1 = remove_version_str(et1.text)
-    text2 = remove_version_str(et2.text)
+    text1 = et1.text
+    text2 = et2.text
     if text1 != text2:
         return False
 
@@ -166,8 +170,7 @@ def parse_xml_codelist(codelists, id):
                     print('\n')
                     print('A:\n', text1) # code - not yet in the descriptions list
                     print('B:\n', text2) # element - already in the descriptions list
-                    answer = input('Kuris įrašas lieka: ')
-                    # s == normalized_text[0] for s in TO_CHOP_OFF
+                    answer = input('\nKuris įrašas lieka: ')
                     while not any(s == answer.lower() for s in ['a', 'b']):
                         answer = input('Bandykite dar kartą: ')
 
@@ -178,21 +181,19 @@ def parse_xml_codelist(codelists, id):
             if flag == 0:
                 descriptions.append(code) # tvarkingai surūšiuotas masyvas nuo didžiausios versijos iki mažiausios
     descriptions.sort(key = sortCode)
-    # print(len(descriptions))
-    # print([a.attrib for a in descriptions])
-
+    # # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
     return descriptions
 
 
 def main():
     rt = openxml()
 
-    header = rt[0]
-    codelists = rt[1]
+    _, codelists = list(rt)
 
     versions = {}
 
     for codelist in codelists:
+
         id = codelist.attrib['id']
         if id in versions:
             versions[id].append(codelist)
@@ -201,14 +202,28 @@ def main():
 
     parsed_codelists = []
     for id in versions:
-        parsed_codelists.append(parse_xml_codelist(versions[id], id))
+        new_codelist = parse_xml_codelist(versions[id], id)
+        for version in versions[id][1:]:
+            codelists.remove(version)
+        
+        versions[id][0].attrib['version'] = '1.0'
+        versions[id][0].attrib['urn'] = remove_version_str(versions[id][0].attrib['urn']) # nustato versiją į 1.0
+        versions[id][0].attrib['isFinal'] = 'true'
+        
+        for code in reversed(versions[id][0]):
+            versions[id][0].remove(code)
 
-    print(rt.attrib)
-    
-    et.dump(rt)
-    # tree = et.ElementTree(rt)
-    # rt.write('new_small_codelist.xml', encoding = 'unicode')
+        for code in new_codelist:
+            versions[id][0].append(remove_version_et(code))
+        parsed_codelists.append(new_codelist)
 
-    # reik kažkokio kodo, kuris surenka visus codelistus ir juos sudeda į vieną xml objektą ir jį išsaugo
+    # et.dump(rt)
+    final_string = et.tostring(rt)
+    final_string = final_string.replace(b'ns0', b'mes')
+    final_string = final_string.replace(b'ns2', b'str')
+    with open('new_small_codelist.xml', 'wb') as f:
+        f.write(final_string)
+
+    print('Failas išsaugotas sėkmingai')
 
 main()
