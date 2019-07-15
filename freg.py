@@ -9,6 +9,7 @@ import xml.etree.ElementTree as et
 from xml.etree.ElementTree import Element, ElementTree
 import time
 from bs4 import BeautifulSoup as bs
+from colorama import init, Back, Fore
 
 
 TO_CHOP_OFF = [' ', '\n', '\t', '\r']
@@ -105,7 +106,8 @@ def sortCode(et):
     try:
         urn = et.attrib['urn']
         key = urn.split('.')
-        return key[-1]
+        key = str((et.tag)) + key[-1]
+        return key
     except:
         return '_'
 
@@ -140,6 +142,36 @@ def add_version(et):
     except:
         return et
 
+def print_comparison(str1, str2):
+    code1 = str1.split('\n')
+    code2 = str2.split('\n')
+    one_hot = [0] * (len(code1) + len(code2))
+    offset = len(code1)
+
+    for i, line in enumerate(code1):
+        if len(code1) >= i:
+            if remove_version_str(line) != remove_version_str(code2[i]):
+                one_hot[i] = 1
+
+    for i, line in enumerate(code2):
+        if len(code2) >= i:
+            if remove_version_str(line) != remove_version_str(code1[i]):
+                one_hot[i + offset] = 1
+
+    print('A:\n')
+    for i, line in enumerate(code1):
+        if one_hot[i] == 1:
+            print(Back.RED + line + Back.BLACK)
+        else:
+            print(line)
+
+    print('B:\n')
+    for i, line in enumerate(code2):
+        if one_hot[i + offset] == 1:
+            print(Back.RED + line + Back.BLACK)
+        else:
+            print(line)
+
 
 def parse_xml_codelist(codelists, id):
     descriptions = []
@@ -167,9 +199,11 @@ def parse_xml_codelist(codelists, id):
                     # leisti pasirinkti, kurio reikia
                     text1 = print_xml(code)
                     text2 = print_xml(element)
+
                     print('\n')
                     print('A:\n', text1) # code - not yet in the descriptions list
                     print('B:\n', text2) # element - already in the descriptions list
+                    print_comparison(text1, text2)
                     answer = input('\nKuris įrašas lieka: ')
                     while not any(s == answer.lower() for s in ['a', 'b']):
                         answer = input('Bandykite dar kartą: ')
@@ -181,13 +215,13 @@ def parse_xml_codelist(codelists, id):
             if flag == 0:
                 descriptions.append(code) # tvarkingai surūšiuotas masyvas nuo didžiausios versijos iki mažiausios
     descriptions.sort(key = sortCode)
-    # # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
+    # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
     return descriptions
 
 
 def main():
+    init()
     rt = openxml()
-
     _, codelists = list(rt)
 
     versions = {}
@@ -217,13 +251,12 @@ def main():
             versions[id][0].append(remove_version_et(code))
         parsed_codelists.append(new_codelist)
 
-    # et.dump(rt)
     final_string = et.tostring(rt)
     final_string = final_string.replace(b'ns0', b'mes')
     final_string = final_string.replace(b'ns2', b'str')
     with open('new_small_codelist.xml', 'wb') as f:
         f.write(final_string)
 
-    print('Failas išsaugotas sėkmingai')
+    print(Back.GREEN + 'Failas išsaugotas sėkmingai' + Back.BLACK)
 
 main()
