@@ -10,10 +10,10 @@ from xml.etree.ElementTree import Element, ElementTree
 import time
 from bs4 import BeautifulSoup as bs
 from colorama import init, Back, Fore
+import os
 
-
-TO_CHOP_OFF = [' ', '\n', '\t', '\r']
-TO_DELETE = ['\t', '\r', ]
+TO_CHOP_OFF = [' ', '\n', '\t', '\r', '\xa0']
+TO_DELETE = ['\t', '\r']
 
 def normalize_text(text_to_normalize):
     normalized_text = str(text_to_normalize)
@@ -35,9 +35,7 @@ def normalize_text(text_to_normalize):
 def print_xml(element):
     text = et.tostring(element, encoding = 'unicode')
     text = bs(text, 'lxml')
-    text = text.prettify()    
-    text = text.replace('ns0', 'str')
-    text = text.replace('ns2', 'str')
+    text = text.prettify()
     text = text.replace('<html>', '')
     text = text.replace('</html>', '')
     text = text.replace('<body>', '')
@@ -58,8 +56,8 @@ def ets_equal(et1, et2):
     if attrib1 != attrib2:
         return False
 
-    text1 = et1.text
-    text2 = et2.text
+    text1 = normalize_text(et1.text)
+    text2 = normalize_text(et2.text)
     if text1 != text2:
         return False
 
@@ -86,21 +84,61 @@ def children_equal(et1, et2):
         children.remove(0)
         if 2 * len(children) == total_len:
             return True
+            
     return False
 
 def conflict(et1, et2):
     try:
         value1 = et1.attrib['value']
         value2 = et2.attrib['value']
+        if value1 == value2:
+            return True
     except:
+        try:
+            if et1.tag == et2.tag == 'str:Name':
+                lang1 = et1.attrib['xml:lang']
+                lang2 = et2.attrib['xml:lang']
+                if lang1 == lang2:
+                    return True
+        except:
+            return False
         return False
-    if value1 == value2:
-        return True
     return False
 
-def openxml():
-    root = et.parse('small_codelist.xml').getroot()
+def openxml(filename):
+
+    with open(filename, 'r', encoding = 'utf-8') as f:
+        file = f.read()
+
+    register_namespaces(file)
+
+    root = et.parse(filename).getroot()
     return root
+
+def register_namespaces(file):
+    start = file.find('Structure') + 10
+    end = file[start:].find('>') + start
+    structure = file[start:end]
+    
+    namespaces = {}
+    start = structure.find('"') + 1
+
+    while start != 0:
+        end = structure[start:].find('"') + start
+
+        namespace_start = structure[:start].rfind(':') + 1
+        namespace_end = structure[namespace_start:].find('=') + namespace_start
+
+        namespace = structure[namespace_start:namespace_end]
+        uri = structure[start:end]
+        namespaces[namespace] = uri
+        
+        structure = structure[end+1:]        
+        start = structure.find('"') + 1
+
+    del namespaces['schemaLocation']
+    for ns in namespaces:
+        et.register_namespace(ns, namespaces[ns])
 
 def sortCode(et):
     try:
@@ -115,6 +153,9 @@ def remove_version_str(urn):
     try:
         start = urn.rfind('(')
         end = urn.rfind(')') + 1
+
+        _ = float(urn[start + 1:end - 1])
+
         if start == -1 or end == -1:
             return urn
         else:
@@ -150,12 +191,12 @@ def print_comparison(str1, str2):
 
     for i, line in enumerate(code1):
         if len(code1) >= i:
-            if remove_version_str(line) != remove_version_str(code2[i]):
+            if remove_version_str(line) not in [remove_version_str(a) for a in code2]:
                 one_hot[i] = 1
 
     for i, line in enumerate(code2):
         if len(code2) >= i:
-            if remove_version_str(line) != remove_version_str(code1[i]):
+            if remove_version_str(line) not in [remove_version_str(a) for a in code1]:
                 one_hot[i + offset] = 1
 
     print('A:\n')
@@ -197,12 +238,10 @@ def parse_xml_codelist(codelists, id):
 
                 elif conflict(element, code):
                     # leisti pasirinkti, kurio reikia
-                    text1 = print_xml(code)
-                    text2 = print_xml(element)
+                    text1 = print_xml(code) # code -> dar ne descriptions masyve
+                    text2 = print_xml(element) # element -> jau descriptions masyve
 
                     print('\n')
-                    print('A:\n', text1) # code - not yet in the descriptions list
-                    print('B:\n', text2) # element - already in the descriptions list
                     print_comparison(text1, text2)
                     answer = input('\nKuris įrašas lieka: ')
                     while not any(s == answer.lower() for s in ['a', 'b']):
@@ -221,9 +260,9 @@ def parse_xml_codelist(codelists, id):
 
 def main():
     init()
-    rt = openxml()
+    rt = openxml('small_codelist.xml')
     _, codelists = list(rt)
-
+    
     versions = {}
 
     for codelist in codelists:
@@ -252,8 +291,6 @@ def main():
         parsed_codelists.append(new_codelist)
 
     final_string = et.tostring(rt)
-    final_string = final_string.replace(b'ns0', b'mes')
-    final_string = final_string.replace(b'ns2', b'str')
     with open('new_small_codelist.xml', 'wb') as f:
         f.write(final_string)
 
