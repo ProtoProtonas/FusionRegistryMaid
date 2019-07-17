@@ -32,6 +32,14 @@ def normalize_text(text_to_normalize):
 
     return str(normalized_text)
 
+
+def sublist(sublist, full_list):
+    lst1 = list(full_list)
+    lst2 = list(sublist)
+    ls1 = [element for element in lst1 if element in lst2]
+    return ls1 == lst2
+
+
 def print_xml(element):
     text = et.tostring(element, encoding = 'unicode')
     text = bs(text, 'lxml')
@@ -172,17 +180,6 @@ def remove_version_et(obj):
     except:
         return obj
 
-def add_version(et):
-    try:
-        length = len(et.attrib['value']) + 1
-        new_et = et
-        urn = new_et.attrib['urn']
-        urn = urn[:length] + '(1.0)' + urn[length:]
-        new_et.attrib['urn'] = urn
-        return new_et
-    except:
-        return et
-
 def print_comparison(str1, str2):
     code1 = str1.split('\n')
     code2 = str2.split('\n')
@@ -228,6 +225,7 @@ def parse_xml_codelist(codelists, id):
     urns.insert(0, descriptions) # kiekvienas description masyvas yra urns masyvo dalis (masyvų masyvas) ir yra vienos versijos codelistas
 
     descriptions = []
+    conflicts = {}
 
     for codelist in urns: # skirtingos versijos su tuo pačiu id
         for code in codelist: # eina per visus vienos versijos įrašus
@@ -237,6 +235,38 @@ def parse_xml_codelist(codelists, id):
                     flag = 1
 
                 elif conflict(element, code):
+                    # patikrinti, ar vaikai lygūs
+                    children = list(element) + list(code)
+                    for i, child in enumerate(children):
+                        for n in range(i+1, len(children)):
+                            if ets_equal(child, children[n]):
+                                children[i] = 0
+
+                    while 0 in children:
+                        children.remove(0)
+
+                    if sublist(children, list(element)):
+                        flag = 1
+                        break
+
+                    elif sublist(children, list(code)):
+                        flag = 0
+                        descriptions.remove(element)
+                        break
+
+
+                    # čia reikia padaryti, kad generuotų žodyną su konfliktais (KS_APREPTIS_UVR.A : [conflicting_element1, conflicting_element2, conflicting_element3])
+                    conflict_id = code.attrib['urn']
+                    conflict_id = conflict_id.split(':')[-1]
+                    conflict_id = remove_version_str(conflict_id)
+
+                    if conflict_id in conflicts:
+                        if not any(ets_equal(code, elem) for elem in conflicts[conflict_id]):
+                            conflicts[conflict_id].append(code)
+                    else:
+                        conflicts[conflict_id] = [element, code]
+
+
                     # leisti pasirinkti, kurio reikia
                     text1 = print_xml(code) # code -> dar ne descriptions masyve
                     text2 = print_xml(element) # element -> jau descriptions masyve
@@ -255,7 +285,7 @@ def parse_xml_codelist(codelists, id):
                 descriptions.append(code) # tvarkingai surūšiuotas masyvas nuo didžiausios versijos iki mažiausios
     descriptions.sort(key = sortCode)
     # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
-    return descriptions
+    return descriptions, conflicts
 
 
 def main():
@@ -273,27 +303,35 @@ def main():
         else:
             versions[id] = [codelist]
 
-    parsed_codelists = []
+    print(versions)
+
     for id in versions:
-        new_codelist = parse_xml_codelist(versions[id], id)
+        new_codelist, conflicts = parse_xml_codelist(versions[id], id)
+
+        # atsikrato visų versijų, išskyrus pirmą sąraše
         for version in versions[id][1:]:
             codelists.remove(version)
         
+        # nustato pirmos versijos atributus (kad likusi versija tikrai būtų pirmoji)
         versions[id][0].attrib['version'] = '1.0'
         versions[id][0].attrib['urn'] = remove_version_str(versions[id][0].attrib['urn']) # nustato versiją į 1.0
         versions[id][0].attrib['isFinal'] = 'true'
         
+        # iš likusios versijos codelisto išmeta VISUS kodus
         for code in reversed(versions[id][0]):
             versions[id][0].remove(code)
 
+        # prie jau tuščios versijos prideda naujus ir sutvarkytus kodus
         for code in new_codelist:
             versions[id][0].append(remove_version_et(code))
-        parsed_codelists.append(new_codelist)
 
     final_string = et.tostring(rt)
     with open('new_small_codelist.xml', 'wb') as f:
         f.write(final_string)
 
     print(Back.GREEN + 'Failas išsaugotas sėkmingai' + Back.BLACK)
+    _ = input('')
+
 
 main()
+
