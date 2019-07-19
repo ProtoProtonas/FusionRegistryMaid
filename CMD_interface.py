@@ -1,16 +1,9 @@
-# test case'ai:
-# 1. svarus grazus failiukas be jokiu balaganu
-# 2. failiukas su vienu pasikartojanciu codelistu
-# 3. failiukas su keliais pasikartojanciais codelistais
-# 4. failiukas su vienu pasikartojanciu codelistu ir clashais jame
-# 5. failiukas su keliais pasikartojanciais codelistais ir clashais visuose juose
-
-import xml.etree.ElementTree as et
-from xml.etree.ElementTree import Element, ElementTree
+import os
 import time
+import xml.etree.ElementTree as et
 from bs4 import BeautifulSoup as bs
 from colorama import init, Back, Fore
-import os
+from xml.etree.ElementTree import Element, ElementTree
 
 TO_CHOP_OFF = [' ', '\n', '\t', '\r', '\xa0']
 TO_DELETE = ['\t', '\r']
