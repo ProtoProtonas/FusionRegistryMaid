@@ -6,22 +6,32 @@
 # 5. failiukas su keliais pasikartojanciais codelistais ir clashais visuose juose
 
 import os
-import xml.etree.ElementTree as et
 import time
+import xml.etree.ElementTree as et
 
 from bs4 import BeautifulSoup as bs
 from colorama import init, Back, Fore
-from freg_funkcijos import normalize_text, print_xml, openxml, register_namespaces, remove_version_et, remove_version_str
+from freg_funkcijos import normalize_text, print_xml, openxml, register_namespaces, remove_version_et, remove_version_str, sortCode
 from openpyxl import Workbook
 from openpyxl.cell import Cell
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from xml.etree.ElementTree import Element, ElementTree
 
+#def sublist(sublist, full_list): # patikrina ar sublist masyvas yra full_list masyvo poaibis
+#    lst1 = list(set(full_list)) # kad jau tikrai sąrašas būtų
+#    lst2 = list(set(sublist))
+#    if all(a in lst1 for a in lst2):
+#        return True
+#    return False
+
 def sublist(sublist, full_list): # patikrina ar sublist masyvas yra full_list masyvo poaibis
-    lst1 = list(full_list) # kad jau tikrai sąrašas būtų
-    lst2 = list(sublist)
-    ls1 = [element for element in lst1 if element in lst2]
-    return ls1 == lst2
+    lst1 = list(set(full_list)) # kad jau tikrai sąrašas būtų
+    lst2 = list(set(sublist))
+    lst1 = [print_xml(a) for a in lst1]
+    lst2 = [print_xml(a) for a in lst2]
+    if all(a in lst1 for a in lst2):
+        return True
+    return False
 
 def ets_equal(et1, et2):
     tag1 = et1.tag
@@ -85,15 +95,6 @@ def conflict(et1, et2): # ar et1 ir et2 aprašo tą pačią rakto reikšmę (t.y
         return False
     return False
 
-def sortCode(et):
-    try:
-        urn = et.attrib['urn']
-        key = urn.split('.')
-        key = str((et.tag)) + key[-1]
-        return key
-    except:
-        return '_'
-
 def parse_xml_codelist(codelists, id):
     descriptions = []
     urns = []
@@ -120,6 +121,7 @@ def parse_xml_codelist(codelists, id):
                 elif conflict(element, code):
                     # patikrinti, ar vaikai lygūs
                     children = list(element) + list(code)
+
                     for i, child in enumerate(children):
                         for n in range(i+1, len(children)):
                             if ets_equal(child, children[n]):
@@ -128,11 +130,11 @@ def parse_xml_codelist(codelists, id):
                     while 0 in children:
                         children.remove(0)
 
-                    if sublist(children, list(element)):
+                    if sublist(children, list(element)) or children == list(element):
                         flag = 1
                         break
 
-                    elif sublist(children, list(code)):
+                    elif sublist(children, list(code)) or children == list(code):
                         flag = 0
                         descriptions.remove(element)
                         break
@@ -143,7 +145,7 @@ def parse_xml_codelist(codelists, id):
                     conflict_id = remove_version_str(conflict_id)
 
                     if conflict_id in conflicts:
-                        if not any(ets_equal(code, elem) for elem in conflicts[conflict_id]):
+                        if not any(ets_equal(code, elem) for elem in conflicts[conflict_id]): # ets_equal grąžina false, nors juos tiesiog reikia sumerginti
                             conflicts[conflict_id].append(code)
                     else:
                         conflicts[conflict_id] = [element, code]
@@ -152,15 +154,19 @@ def parse_xml_codelist(codelists, id):
                 descriptions.append(code) # tvarkingai surūšiuotas masyvas nuo didžiausios versijos iki mažiausios
     descriptions.sort(key = sortCode)
     # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
+
     return descriptions, conflicts
 
 def main(filename):
     init()
-    rt = openxml('small_codelist.xml')
+    rt = openxml(filename)
     _, codelists = list(rt)
     
     versions = {}
     final_conflict_array = []
+
+    if not os.path.isdir('excel_raktai'):
+        os.mkdir('excel_raktai')
 
     for codelist in codelists: # kiekvienai rakto versijai sukuriamas atskiras codelistas
 
@@ -193,60 +199,103 @@ def main(filename):
 
         # sukuriamas parent, child masyvas ir pridedamas prie final_conflict_array masyvo
         parent = versions[id][0]
-        final_conflict_array.append((parent, conflicts))
+        if len(conflicts) > 0:
+            final_conflict_array.append((parent, conflicts))
 
-    # pasiruošiama darbui su excel
-    wb = Workbook()
-    ws = wb.active
 
-    # konfliktai surašomi į excel dokumentą
-    for _, conflicts in final_conflict_array:
-        for id in conflicts:
-            ws.append([id])
+    for parent, conflicts in final_conflict_array:
+
+        wb = Workbook()
+        wb.create_sheet('Pavadinimai')
+        wb.create_sheet('XML')
+        wb.remove(wb['Sheet'])
+
+        ws2 = wb['Pavadinimai']
+        ws_xml = wb['XML']
+        
+        id = parent.attrib['id']
+        for conflict_id in conflicts:
+            ws_xml.append([conflict_id])
             key_values = []
-            for elem in conflicts[id]:
-                key_values.append(print_xml(elem))
+            key_lt = []
+            key_en = []
 
-            ws.append(key_values)
+            for elem in conflicts[conflict_id]: # elem = KS_APREPTIS_UVR(1.0).F
+                text = print_xml(elem)
+                elem_id = elem.get('urn').split('(')[-1]
+                elem_id = elem_id.split(')')[0]
 
-    #print(len(final_conflict_array))
+                for description in elem:
+                    att = description.attrib
+                    record = description.text
 
-    # set height and width of cells
-    for i, row in enumerate(ws.iter_rows()):
-        for cell in row:
-            cell.alignment = Alignment(wrap_text = True) # nustatoma, kad viename Excel langelyje automatiškai perkeltų tekstą į kitą eilutę, taip nusistato ir stulpelio aukštis
+                    for lang in att:  # att dydis visada yra 1
+                        language = att[lang]
 
-    for col in ws.iter_cols():
-        ws.column_dimensions[col[0].column_letter].width = 110 # nustatomas langelio plotis
-    
-    wb.save('%s.xlsx' % filename) # išsaugomas Excel dokumentas
+                        if language.lower() == 'en':
+                            key_en.append(elem_id)
+                            key_en.append(record)
+                            text = text.replace(record, '###en###')
+                        elif language.lower() == 'lt':
+                            key_lt.append(elem_id)
+                            key_lt.append(record)
+                            text = text.replace(record, '###lt###')
 
+                if len(key_values) != 0:
+                    if len(key_values[0]) < len(text):
+                        key_values = []
+                        key_values.append(text)
+                else:
+                    key_values.append(text)
 
-     # pasiruošiama darbui su excel
+            ws2.append([conflict_id.split('.')[-1]])
+            ws2.append(key_lt)
+            ws2.append(key_en)
+            ws_xml.append(key_values)
 
+        for i, row in enumerate(ws_xml.iter_rows()):
+            for cell in row:
+                cell.alignment = Alignment(wrap_text = True) # nustatoma, kad viename Excel langelyje automatiškai perkeltų tekstą į kitą eilutę, taip nusistato ir stulpelio aukštis
 
-    # set height and width of cells
-    for i, row in enumerate(ws.iter_rows()):
-        for cell in row:
-            cell.alignment = Alignment(wrap_text = True) # nustatoma, kad viename Excel langelyje automatiškai perkeltų tekstą į kitą eilutę, taip nusistato ir stulpelio aukštis
+        for col in ws_xml.iter_cols():
+            ws_xml.column_dimensions[col[0].column_letter].width = 110 # nustatomas langelio plotis
 
-    for col in ws.iter_cols():
-        ws.column_dimensions[col[0].column_letter].width = 110 # nustatomas langelio plotis
-    
-    wb.save('%s.xlsx' % filename) # išsaugomas Excel dokumentas
+        for col in ws2.iter_cols():
+            if col[0].column % 2 == 0:
+                ws2.column_dimensions[col[0].column_letter].width = 70 # nustatomas langelio plotis
 
+        for row in ws2.iter_rows():
+            keys_lt = []
+            keys_en = []
 
+            if row[0].row % 3 == 1:
+                ws2.merge_cells('%s:%s' % (row[0].coordinate, row[ws2.max_column - 1].coordinate))
 
+            for cell in row:
+                if cell.row % 3 == 1:
+                    cell.fill = PatternFill(fgColor = 'c2ffd1', fill_type = 'solid')
+                    cell.font = Font(size = 25, bold = True)
+                    ws2.row_dimensions[cell.row].height = 30
+                    cell.alignment = Alignment(horizontal = 'left')
 
+                elif cell.row % 3 == 2:
+                    if cell.value not in keys_lt and cell.column % 2 == 0:
+                        if keys_lt != []:
+                            cell.font = Font(color = 'ff0000')
+                        keys_lt.append(cell.value)
 
+                else:
+                    if cell.value not in keys_en and cell.column % 2 == 0:
+                        if keys_en != []:
+                            cell.font = Font(color = 'ff0000')
+                        keys_en.append(cell.value)
 
-
-
+        wb.save(os.path.join('excel_raktai', ('%s.xlsx' % id)))    
 
     final_string = et.tostring(rt)
-    with open('%s.xml' % filename, 'wb') as f:
+    with open('new_' + filename, 'wb') as f:
         f.write(final_string) # išsaugomas xml failas, tačiau vietoje konfliktų prisegama pirma versija (vėliau parenkama, kokia norima)
 
     print(Back.GREEN + 'Programa baigė darbą sėkmingai' + Back.BLACK)
 
-main('new_small_codelist')
+main('codelist.xml')
