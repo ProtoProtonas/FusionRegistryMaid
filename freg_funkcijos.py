@@ -39,6 +39,15 @@ def print_xml(element):
     text = normalize_text(text)
     return text
 
+def sortCode(et):
+    try:
+        urn = et.attrib['urn']
+        value = et.attrib['value']
+        key = str((et.tag)) + value
+        return key
+    except:
+        return '_'
+
 def openxml(filename):
 
     with open(filename, 'r', errors = 'ignore') as f:
