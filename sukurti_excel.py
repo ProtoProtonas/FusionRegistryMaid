@@ -14,17 +14,12 @@ from colorama import init, Back, Fore
 from freg_funkcijos import normalize_text, print_xml, openxml, register_namespaces, remove_version_et, remove_version_str, sortCode
 from openpyxl import Workbook
 from openpyxl.cell import Cell
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill, Protection
 from xml.etree.ElementTree import Element, ElementTree
 
-#def sublist(sublist, full_list): # patikrina ar sublist masyvas yra full_list masyvo poaibis
-#    lst1 = list(set(full_list)) # kad jau tikrai sąrašas būtų
-#    lst2 = list(set(sublist))
-#    if all(a in lst1 for a in lst2):
-#        return True
-#    return False
-
 def sublist(sublist, full_list): # patikrina ar sublist masyvas yra full_list masyvo poaibis
+    if sublist == []:
+        return False
     lst1 = list(set(full_list)) # kad jau tikrai sąrašas būtų
     lst2 = list(set(sublist))
     lst1 = [print_xml(a) for a in lst1]
@@ -51,7 +46,7 @@ def ets_equal(et1, et2):
     if text1 != text2:
         return False
 
-    if (list(et1) == []) ^ (list(et2) == []): # jei vienas turi chlild elementų, o kitas ne
+    if (list(et1) == []) ^ (list(et2) == []): # jei vienas turi child elementų, o kitas ne
         return False
 
     if (list(et1) != []) and (list(et2) != []): # jei abu turi child elementų
@@ -85,9 +80,9 @@ def conflict(et1, et2): # ar et1 ir et2 aprašo tą pačią rakto reikšmę (t.y
             return True
     except:
         try:
-            if et1.tag == et2.tag == 'str:Name':
-                lang1 = et1.attrib['xml:lang']
-                lang2 = et2.attrib['xml:lang']
+            if et1.tag == et2.tag:
+                lang1 = et1.attrib
+                lang2 = et2.attrib
                 if lang1 == lang2:
                     return True
         except:
@@ -120,7 +115,9 @@ def parse_xml_codelist(codelists, id):
 
                 elif conflict(element, code):
                     # patikrinti, ar vaikai lygūs
+                    print(element.attrib, code.attrib)
                     children = list(element) + list(code)
+                    print(children)
 
                     for i, child in enumerate(children):
                         for n in range(i+1, len(children)):
@@ -220,7 +217,7 @@ def main(filename):
             key_lt = []
             key_en = []
 
-            for elem in conflicts[conflict_id]: # elem = KS_APREPTIS_UVR(1.0).F
+            for elem in reversed(conflicts[conflict_id]): # elem = KS_APREPTIS_UVR(1.0).F. reversed tam, kad pirmiausia dėtų naujausią elementą
                 text = print_xml(elem)
                 elem_id = elem.get('urn').split('(')[-1]
                 elem_id = elem_id.split(')')[0]
@@ -267,11 +264,18 @@ def main(filename):
         for row in ws2.iter_rows():
             keys_lt = []
             keys_en = []
+            ws2.protection.sheet = True
+            ws2.protection.enable()
+            
 
             if row[0].row % 3 == 1:
                 ws2.merge_cells('%s:%s' % (row[0].coordinate, row[ws2.max_column - 1].coordinate))
+                
 
             for cell in row:
+                if cell.column % 2 == 0:
+                    cell.protection = Protection(locked = False)
+
                 if cell.row % 3 == 1:
                     cell.fill = PatternFill(fgColor = 'c2ffd1', fill_type = 'solid')
                     cell.font = Font(size = 25, bold = True)
@@ -290,6 +294,8 @@ def main(filename):
                             cell.font = Font(color = 'ff0000')
                         keys_en.append(cell.value)
 
+        ws_xml.protection.sheet = True
+        ws_xml.protection.enable()
         wb.save(os.path.join('excel_raktai', ('%s.xlsx' % id)))    
 
     final_string = et.tostring(rt)
@@ -298,4 +304,4 @@ def main(filename):
 
     print(Back.GREEN + 'Programa baigė darbą sėkmingai' + Back.BLACK)
 
-main('codelist.xml')
+main('small_codelist.xml')
