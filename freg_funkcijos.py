@@ -30,6 +30,7 @@ def normalize_text(text_to_normalize):
 
 def print_xml(element):
     text = et.tostring(element, encoding = 'unicode')
+    text = remove_version_str(text)
     text = bs(text, 'lxml')
     text = text.prettify()
     text = text.replace('<html>', '')
@@ -41,12 +42,19 @@ def print_xml(element):
 
 def sortCode(et):
     try:
-        urn = et.attrib['urn']
-        value = et.attrib['value']
-        key = str((et.tag)) + value
+        tag = et.tag
+        tag = tag.split('}')[-1]
+        if tag == 'Code':
+            tag = 'z' + tag
+        urn = et.get('urn')
+        value = et.get('value')
+        key = tag + '.' + value + '.' + str(urn)
         return key
     except:
-        return '_'
+        urn = ''
+        value = ''
+        key = tag + '.' + value + '.' + str(urn)
+        return key
 
 def openxml(filename):
 
