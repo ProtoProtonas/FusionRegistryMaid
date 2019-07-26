@@ -10,8 +10,8 @@ import time
 import xml.etree.ElementTree as et
 
 from bs4 import BeautifulSoup as bs
-from colorama import init, Back, Fore
-from freg_funkcijos import normalize_text, print_xml, openxml, register_namespaces, remove_version_et, remove_version_str, sortCode
+from colorama import Back, Fore, init
+from freg_funkcijos import normalize_text, openxml, print_xml, register_namespaces, remove_version_et, remove_version_str, sortCode
 from openpyxl import Workbook
 from openpyxl.cell import Cell
 from openpyxl.styles import Alignment, Font, PatternFill, Protection
@@ -105,6 +105,7 @@ def parse_xml_codelist(codelists, id):
 
     descriptions = []
     conflicts = {}
+    name_conflicts = {'lt': [], 'en': []}
 
     for codelist in urns: # skirtingos versijos su tuo pačiu id
         for code in codelist: # eina per visus vienos versijos įrašus
@@ -114,10 +115,17 @@ def parse_xml_codelist(codelists, id):
                     flag = 1
 
                 elif conflict(element, code):
-                    # patikrinti, ar vaikai lygūs
-                    print(element.attrib, code.attrib)
                     children = list(element) + list(code)
-                    print(children)
+
+                    if not children:
+                        lang = ''
+                        for a in code.attrib:
+                            lang = code.attrib[a]
+
+                        if code not in name_conflicts[lang]:
+                            name_conflicts[lang].append(code)
+                        if element not in name_conflicts[lang]:
+                            name_conflicts[lang].append(element)
 
                     for i, child in enumerate(children):
                         for n in range(i+1, len(children)):
@@ -146,11 +154,19 @@ def parse_xml_codelist(codelists, id):
                             conflicts[conflict_id].append(code)
                     else:
                         conflicts[conflict_id] = [element, code]
+
                     flag = 1
             if flag == 0:
                 descriptions.append(code) # tvarkingai surūšiuotas masyvas nuo didžiausios versijos iki mažiausios
+
+
+    for a in name_conflicts:
+        for b in name_conflicts[a]:
+            print('name conf: ', b.attrib, b.text)
+
     descriptions.sort(key = sortCode)
     # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
+
 
     return descriptions, conflicts
 
@@ -198,6 +214,7 @@ def main(filename):
         parent = versions[id][0]
         if len(conflicts) > 0:
             final_conflict_array.append((parent, conflicts))
+    #print(final_conflict_array)
 
 
     for parent, conflicts in final_conflict_array:
