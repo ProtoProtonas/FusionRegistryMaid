@@ -38,13 +38,19 @@ def print_xml(element):
     text = text.replace('<body>', '')
     text = text.replace('</body>', '')
     text = normalize_text(text)
+    while ':name' in text:
+        text = text.replace(':name', ':Name')
+    while ':code' in text:
+        text = text.replace(':code', ':Code')
+    while ':description' in text:
+        text = text.replace(':description', ':Description')
     return text
 
 def sortCode(et):
     try:
         tag = et.tag
         tag = tag.split('}')[-1]
-        if tag == 'Code':
+        if tag.lower() == 'code':
             tag = 'z' + tag
         urn = et.get('urn')
         value = et.get('value')
