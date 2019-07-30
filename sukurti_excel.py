@@ -1,10 +1,3 @@
-# test case'ai:
-# 1. svarus grazus failiukas be jokiu balaganu
-# 2. failiukas su vienu pasikartojanciu codelistu
-# 3. failiukas su keliais pasikartojanciais codelistais
-# 4. failiukas su vienu pasikartojanciu codelistu ir clashais jame
-# 5. failiukas su keliais pasikartojanciais codelistais ir clashais visuose juose
-
 import os
 import time
 import xml.etree.ElementTree as et
@@ -122,10 +115,12 @@ def parse_xml_codelist(codelists, id):
                         for a in code.attrib:
                             lang = code.attrib[a]
 
-                        if code not in name_conflicts[lang]:
-                            name_conflicts[lang].append(code)
-                        if element not in name_conflicts[lang]:
-                            name_conflicts[lang].append(element)
+                        codelist_version = codelist.get('version')
+                            
+                        if all(code not in item for item in name_conflicts[lang]):
+                            name_conflicts[lang].append((code, codelist_version))
+                        if all(element not in item for item in name_conflicts[lang]):
+                            name_conflicts[lang].append((element, '1.0'))
 
                     for i, child in enumerate(children):
                         for n in range(i+1, len(children)):
@@ -143,32 +138,27 @@ def parse_xml_codelist(codelists, id):
                         flag = 0
                         descriptions.remove(element)
                         break
+                    try:
+                        # čia reikia padaryti, kad generuotų žodyną su konfliktais (KS_APREPTIS_UVR.A : [conflicting_element1, conflicting_element2, conflicting_element3])
+                        conflict_id = code.attrib['urn']
+                        conflict_id = conflict_id.split(':')[-1]
+                        conflict_id = remove_version_str(conflict_id)
 
-                    # čia reikia padaryti, kad generuotų žodyną su konfliktais (KS_APREPTIS_UVR.A : [conflicting_element1, conflicting_element2, conflicting_element3])
-                    conflict_id = code.attrib['urn']
-                    conflict_id = conflict_id.split(':')[-1]
-                    conflict_id = remove_version_str(conflict_id)
+                        if conflict_id in conflicts:
+                            if not any(ets_equal(code, elem) for elem in conflicts[conflict_id]): # ets_equal grąžina false, nors juos tiesiog reikia sumerginti
+                                conflicts[conflict_id].append(code)
+                        else:
+                            conflicts[conflict_id] = [element, code]
 
-                    if conflict_id in conflicts:
-                        if not any(ets_equal(code, elem) for elem in conflicts[conflict_id]): # ets_equal grąžina false, nors juos tiesiog reikia sumerginti
-                            conflicts[conflict_id].append(code)
-                    else:
-                        conflicts[conflict_id] = [element, code]
+                    except Exception as e:
+                        print(e)
 
                     flag = 1
             if flag == 0:
                 descriptions.append(code) # tvarkingai surūšiuotas masyvas nuo didžiausios versijos iki mažiausios
 
-
-    for a in name_conflicts:
-        for b in name_conflicts[a]:
-            print('name conf: ', b.attrib, b.text)
-
     descriptions.sort(key = sortCode)
-    # gal tiesiog geriau grąžinti vieną jau paruoštą codelistą ir jį appendinti prie codelists childo (ir removint visus kitus pradinius codelistus su tuo id)????
-
-
-    return descriptions, conflicts
+    return descriptions, conflicts, name_conflicts
 
 def main(filename):
     init()
@@ -191,7 +181,7 @@ def main(filename):
             versions[id] = [codelist]
 
     for id in versions:
-        new_codelist, conflicts = parse_xml_codelist(versions[id], id)
+        new_codelist, conflicts, name_conflicts = parse_xml_codelist(versions[id], id)
 
         # atsikrato visų versijų, išskyrus pirmą sąraše
         for version in versions[id][1:]:
@@ -213,11 +203,9 @@ def main(filename):
         # sukuriamas parent, child masyvas ir pridedamas prie final_conflict_array masyvo
         parent = versions[id][0]
         if len(conflicts) > 0:
-            final_conflict_array.append((parent, conflicts))
-    #print(final_conflict_array)
+            final_conflict_array.append((parent, conflicts, name_conflicts))
 
-
-    for parent, conflicts in final_conflict_array:
+    for parent, conflicts, name_conflicts in final_conflict_array:
 
         wb = Workbook()
         wb.create_sheet('Pavadinimai')
@@ -226,8 +214,12 @@ def main(filename):
 
         ws2 = wb['Pavadinimai']
         ws_xml = wb['XML']
-        
-        id = parent.attrib['id']
+        id = ''
+        try:
+            id = parent.attrib['id']
+        except:
+            id = parent
+
         for conflict_id in conflicts:
             ws_xml.append([conflict_id])
             key_values = []
@@ -266,6 +258,64 @@ def main(filename):
             ws2.append(key_lt)
             ws2.append(key_en)
             ws_xml.append(key_values)
+
+        # sutvarkyti pavadinimų konfliktams
+        if name_conflicts['lt'] and name_conflicts['en']:
+            ws2.append(['pavadinimas'])
+            ws_xml.append([id + '.pavadinimas'])
+            record_en = name_conflicts['en'][0][0].text
+            record_lt = name_conflicts['lt'][0][0].text
+
+            text = print_xml(name_conflicts['en'][0][0]) + '######' + print_xml(name_conflicts['lt'][0][0])
+            text = text.replace(record_en, '###en###')
+            text = text.replace(record_lt, '###lt###')
+            ws_xml.append([text])
+
+            key_lt = []
+            for version, key in name_conflicts['lt']:
+                key_lt.append(key)
+                key_lt.append(version.text)
+            key_en = []
+            for version, key in name_conflicts['en']:
+                key_en.append(key)
+                key_en.append(version.text)
+
+            ws2.append(key_lt)
+            ws2.append(key_en)
+
+        elif name_conflicts['lt'] and not name_conflicts['en']:
+            ws2.append(['pavadinimas'])
+            ws_xml.append([id + '.pavadinimas'])
+            record_lt = name_conflicts['lt'][0][0].text
+
+            text = print_xml(name_conflicts['lt'][0][0])
+            text = text.replace(record_lt, '###lt###')
+            ws_xml.append([text])
+
+            key_lt = []
+            for version, key in name_conflicts['lt']:
+                key_lt.append(key)
+                key_lt.append(version.text)
+
+            ws2.append(key_lt)
+            ws2.append([])
+        elif not name_conflicts['lt'] and name_conflicts['en']:
+            ws2.append(['pavadinimas'])
+            ws_xml.append([id + '.pavadinimas'])
+            record_en = name_conflicts['en'][0][0].text
+
+            text = print_xml(name_conflicts['en'][0][0])
+            text = text.replace(record_en, '###en###')
+            ws_xml.append([text])
+
+            key_en = []
+            for version, key in name_conflicts['en']:
+                key_en.append(key)
+                key_en.append(version.text)
+
+            ws2.append([])
+            ws2.append(key_en)
+
 
         for i, row in enumerate(ws_xml.iter_rows()):
             for cell in row:
@@ -321,4 +371,4 @@ def main(filename):
 
     print(Back.GREEN + 'Programa baigė darbą sėkmingai' + Back.BLACK)
 
-main('small_codelist.xml')
+main('codelist.xml')
